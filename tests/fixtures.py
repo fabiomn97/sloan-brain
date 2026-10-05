@@ -172,6 +172,9 @@ def make_xlsx(path):
     ws.append(["Unit cost", 4])
     ws.append(["Salvage value", 1])
     ws.append(["Critical ratio = (p - c) / (p - s)", "=(B2-B3)/(B2-B4)"])
+    junk = wb.create_sheet("rsklibSimData")          # Analytic Solver scratch data
+    junk.append(["_x0001__x0002_" * 2000])
+    junk.sheet_state = "hidden"
     wb.save(path)
 
 

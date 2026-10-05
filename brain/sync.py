@@ -98,6 +98,16 @@ def locator(kind, nums, slides=False):
     return f"{label[0]} {first}" if first == last else f"{label[1]} {first}–{last}"
 
 
+JUNK = re.compile(r"_x[0-9A-Fa-f]{4}_|[\x00-\x08\x0b\x0c\x0e-\x1f]")
+MAX_CHUNK_CHARS = 6000          # well under D1's 100 KB statement limit
+
+
+def sanitize(text):
+    """Strip encoded binary and absurdly long tokens that leak in from some files."""
+    text = JUNK.sub("", text)
+    return re.sub(r"\S{120,}", "", text)
+
+
 def chunk(body, slides=False):
     """Pack sections into passages of ~TARGET_WORDS, keeping locators exact."""
     chunks, group = [], []
@@ -114,7 +124,7 @@ def chunk(body, slides=False):
             })
             group.clear()
 
-    for sec in sections(body):
+    for sec in sections(sanitize(body)):
         words = len(sec["text"].split())
         if words > MAX_WORDS:
             flush()
@@ -127,36 +137,49 @@ def chunk(body, slides=False):
             flush()
         group.append(sec)
     flush()
-    return chunks
+    for c in chunks:
+        if len(c["text"]) > MAX_CHUNK_CHARS:
+            c["text"] = c["text"][:MAX_CHUNK_CHARS].rsplit(" ", 1)[0] + " …"
+    return [c for c in chunks if c["text"].strip()]
 
 
 def collect():
-    docs = []
+    """Read corpus/. Canvas often posts one file in two places; identical copies
+    are indexed once, so an answer never cites the same passage twice."""
+    docs, seen_bodies = [], set()
+    paths = []
     for dirpath, _, files in os.walk(CORPUS_DIR):
-        for name in sorted(files):
-            if not name.endswith(".md") or name.lower() == "readme.md":
-                continue
-            path = os.path.join(dirpath, name)
-            rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
-            with open(path, "rb") as f:
-                digest = sha1(f.read().decode("utf-8", "replace"))
-            meta, body = read_doc(path)
-            parts = chunk(body, slides=meta.get("type") == "slides")
-            if not parts:
-                continue
-            title = meta.get("title") or os.path.splitext(name)[0]
-            label = " · ".join(x for x in (meta.get("course"), meta.get("course_name"), title) if x)
-            doc = {
-                "id": sha1(rel)[:16], "path": rel, "title": title,
-                "course": meta.get("course", ""), "course_name": meta.get("course_name", ""),
-                "term": meta.get("term", ""), "type": meta.get("type", "document"),
-                "module": meta.get("module", ""), "date": meta.get("date", ""),
-                "source": meta.get("source", ""), "url": meta.get("url", ""),
-                "locator_kind": meta.get("locator_kind", "section"), "hash": digest[:20],
-                "words": len(body.split()), "n_chunks": len(parts),
-            }
-            doc["chunks"] = [dict(p, title=label, seq=i) for i, p in enumerate(parts)]
-            docs.append(doc)
+        for name in files:
+            if name.endswith(".md") and name.lower() != "readme.md":
+                paths.append(os.path.join(dirpath, name))
+    # Plain names before "-a1b2c3" collision copies, so the clean name is kept.
+    paths.sort(key=lambda p: (bool(re.search(r"-[0-9a-f]{6}\.md$", p)), p))
+    for path in paths:
+        name = os.path.basename(path)
+        rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
+        with open(path, "rb") as f:
+            digest = sha1(f.read().decode("utf-8", "replace"))
+        meta, body = read_doc(path)
+        body_key = sha1(body)
+        if body_key in seen_bodies:
+            continue
+        seen_bodies.add(body_key)
+        parts = chunk(body, slides=meta.get("type") == "slides")
+        if not parts:
+            continue
+        title = meta.get("title") or os.path.splitext(name)[0]
+        label = " · ".join(x for x in (meta.get("course"), meta.get("course_name"), title) if x)
+        doc = {
+            "id": sha1(rel)[:16], "path": rel, "title": title,
+            "course": meta.get("course", ""), "course_name": meta.get("course_name", ""),
+            "term": meta.get("term", ""), "type": meta.get("type", "document"),
+            "module": meta.get("module", ""), "date": meta.get("date", ""),
+            "source": meta.get("source", ""), "url": meta.get("url", ""),
+            "locator_kind": meta.get("locator_kind", "section"), "hash": digest[:20],
+            "words": len(body.split()), "n_chunks": len(parts),
+        }
+        doc["chunks"] = [dict(p, title=label, seq=i) for i, p in enumerate(parts)]
+        docs.append(doc)
     return docs
 
 

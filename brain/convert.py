@@ -324,9 +324,12 @@ def convert_xlsx(path):
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     parts = []
     for ws in wb.worksheets:
+        # Hidden sheets are tool scratch space (e.g. Analytic Solver's rsklib* data), not content.
+        if ws.sheet_state != "visible" or ws.title.lower().startswith("rsklib"):
+            continue
         rows = []
         for row in ws.iter_rows(values_only=True):
-            cells = ["" if v is None else str(v).replace("\n", " ").strip() for v in row]
+            cells = [clean_cell(v) for v in row]
             while cells and not cells[-1]:
                 cells.pop()
             if any(cells):
@@ -341,6 +344,19 @@ def convert_xlsx(path):
     if not parts:
         raise Unsupported("spreadsheet is empty")
     return "\n\n".join(parts), {"locator_kind": "sheet"}
+
+
+JUNK = re.compile(r"_x[0-9A-Fa-f]{4}_|[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def clean_cell(value, limit=300):
+    """Spreadsheet cell -> short plain text. Drops encoded binary that some add-ins store in cells."""
+    if value is None:
+        return ""
+    text = JUNK.sub("", str(value)).replace("\n", " ").replace("|", "/").strip()
+    if text and sum(not (c.isprintable() or c.isspace()) for c in text) > len(text) * 0.1:
+        return ""
+    return text if len(text) <= limit else text[:limit] + "…"
 
 
 def convert_csv(path):

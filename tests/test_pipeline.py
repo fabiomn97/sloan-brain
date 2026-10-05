@@ -267,6 +267,8 @@ def main():
     reading = open(os.path.join(corpus, "15.010/readings/note-on-price-discrimination.md")).read()
     check("repeated PDF footer removed", "Not for distribution" not in reading)
     check("front matter has course and module", 'course: "15.010"' in slides and 'module: "Week 4: Pricing"' in slides)
+    sheet = open(os.path.join(corpus, "15.761/spreadsheets/newsvendor-model.md")).read()
+    check("hidden add-in sheets skipped", "rsklib" not in sheet and "_x0001_" not in sheet)
     conv_failed = open(os.path.join(tmp, "raw", "convert-failed.csv"), encoding="utf-8-sig").read()
     check("scanned PDF reported for OCR", "needs OCR" in conv_failed)
 
