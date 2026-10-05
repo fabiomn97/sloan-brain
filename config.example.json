@@ -1,0 +1,8 @@
+{
+  "canvas_host": "canvas.mit.edu",
+  "canvas_token": "PASTE_YOUR_CANVAS_TOKEN_HERE",
+
+  "max_file_mb": 150,
+  "include_discussions": true,
+  "ignore_course_ids": []
+}

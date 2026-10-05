@@ -1,0 +1,20 @@
+# This repo is PRIVATE. Even so, some things never get committed.
+
+# Canvas token and other secrets
+config.json
+app/.dev.vars
+
+# Original files (PDFs, decks). Large, and the Markdown in corpus/ is what the
+# brain uses. Back these folders up to a personal drive instead.
+raw/
+inbox/**
+!inbox/**/
+!inbox/**/README.md
+
+# Build output and tooling
+build/
+app/node_modules/
+app/.wrangler/
+__pycache__/
+*.pyc
+.DS_Store
