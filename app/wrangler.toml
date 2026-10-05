@@ -19,7 +19,7 @@ binding = "AI"
 [[d1_databases]]
 binding = "DB"
 database_name = "sloan-brain"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+database_id = "639adb6b-470b-4078-9e15-b4cd9f70a6ba"
 
 [vars]
 OWNER_NAME = "Fabio"
