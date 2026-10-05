@@ -88,6 +88,7 @@ def canvas_data(files):
                         102: [{"id": 501, "name": "Team charter", "due_at": "2026-09-25T04:00:00Z",
                                "points_possible": 10, "html_url": "/courses/102/assignments/501",
                                "updated_at": T, "description":
+                               "<p>Case: <a href=\"/courses/102/external_tools/retrieve?url=https%3A%2F%2Fservices.hbsp.harvard.edu%2Flti%2Flinks%2F816051-PDF-ENG\">Connective Mobility</a></p>"
                                "<p>Agree with your Core Team on <strong>how you will give feedback</strong>, "
                                "how you will make decisions, and what happens when someone misses a deadline.</p>"}]},
         "announcements": {101: [{"id": 9001, "title": "Problem set 2 posted", "posted_at": T,
@@ -237,6 +238,8 @@ def main():
     check("reports locked file", reasons.get("Peer review rubric.pdf", {}).get("status") == "failed")
     check("lists external case link for manual download",
           reasons.get("HBS case: Pricing a subscription", {}).get("status") == "manual")
+    check("lists Harvard Business Publishing cases for manual download",
+          reasons.get("Connective Mobility", {}).get("status") == "manual")
     check("skips video", reasons.get("Session 4 recording.mp4", {}).get("status") == "skipped")
 
     out = run(["brain/canvas_harvest.py", "--config", cfg], env)

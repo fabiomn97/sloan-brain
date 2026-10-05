@@ -51,6 +51,7 @@ DEFAULTS = {"max_file_mb": 150, "ignore_course_ids": [], "include_discussions": 
 MEDIA = ("video/", "audio/")
 COURSE_CODE = re.compile(r"\b(\d{1,2}\.[0-9A-Z]{2,4}[A-Z]?)\b")
 FILE_LINK = re.compile(r"/(?:api/v1/)?(?:courses/(\d+)/)?files/(\d+)")
+TOOL_LINK = re.compile(r'<a\b[^>]*href="([^"]*/external_tools/retrieve\?[^"]*)"[^>]*>(.*?)</a>', re.S | re.I)
 
 
 # --------------------------------------------------------------------------
@@ -271,10 +272,21 @@ class Harvester:
         if self.cfg["include_discussions"]:
             bodies += self.discussions(course, modules)
 
+        tools = {}
         for body in bodies:
             for link_course, fid in FILE_LINK.findall(body or ""):
                 if not link_course or int(link_course) == cid:
                     file_ids.setdefault(int(fid), "")
+            # Cases and articles sold through Harvard Business Publishing (and other
+            # LTI tools) open inside Canvas but can't be fetched through the API.
+            for href, text in TOOL_LINK.findall(body or ""):
+                title = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", html.unescape(text))).strip()
+                tools.setdefault(html.unescape(href), title or "Linked reading")
+        for href, title in tools.items():
+            vendor = "Harvard Business Publishing" if "hbsp" in urllib.parse.unquote(href) else "an external tool"
+            self.fail(course, "linked reading", title, href, f"sold through {vendor}; not downloadable via API",
+                      status="manual", todo="Open it from Canvas (your coursepack), download the PDF, and "
+                                            f"save it in inbox/canvas/{slugify(course['label'])}/")
         self.files(course, modules, file_ids)
 
     def modules(self, course):
