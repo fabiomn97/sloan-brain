@@ -29,3 +29,35 @@ ACCESS_AUD = "7c631b7104df3e326df89bbe234a9eb0e6f66d2e1eadecef9379a76335482261"
 # Models (Workers AI). Change here if Cloudflare retires one.
 ANSWER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 EXPAND_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
+
+# ---------------------------------------------------------------------------
+# Public demo at demo.fabio.cool: the same app, public, loaded with MIT
+# OpenCourseWare material (CC BY-NC-SA). Deploy with `wrangler deploy --env demo`.
+# It shares the account's free Workers AI allowance, hence the daily caps.
+# ---------------------------------------------------------------------------
+[env.demo]
+name = "sloan-brain-demo"
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "demo.fabio.cool", custom_domain = true }]
+
+[env.demo.assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[env.demo.ai]
+binding = "AI"
+
+[[env.demo.d1_databases]]
+binding = "DB"
+database_name = "sloan-brain-demo"
+database_id = "d3ab8fc5-9929-4093-8ab0-ffaa2b401895"
+
+[env.demo.vars]
+DEMO = "true"
+OWNER_NAME = "Fabio"
+DEMO_DAILY = "8"           # live answers per day for all visitors together (a deep dive counts 2)
+DEMO_PER_VISITOR = "4"     # live answers per visitor per day; repeat questions are free
+ANSWER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+EXPAND_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"

@@ -141,9 +141,11 @@
     for (const t of s.types) {
       if (OUTSIDE[t.type]) opts.push({ key: "@" + t.type, code: OUTSIDE[t.type][0], name: OUTSIDE[t.type][1], term: t.term || "", n: t.n, outside: true, short: OUTSIDE[t.type][0] });
     }
+    // The demo's OpenCourseWare courses come from different years: one group, terms on the tiles.
     const groups = new Map();
     for (const o of opts) {
-      const g = o.term || "Other";
+      if (s.demo && o.term) o.sub = o.term;
+      const g = s.demo ? "Sloan core courses · MIT OpenCourseWare" : (o.term || "Other");
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(o);
     }
@@ -158,6 +160,7 @@
       const res = await fetch("/api/stats");
       if (!res.ok) throw new Error(await res.text());
       const s = state.stats = await res.json();
+      if (s.demo) applyDemo();
       el.navStat.textContent = `${plural(s.docs, "doc")} · ${plural(s.courses.length, "course")}`;
       el.navStat.hidden = false;
       state.options = buildOptions(s);
@@ -170,7 +173,7 @@
           <label class="opt">
             <input type="checkbox" value="${esc(o.key)}">
             <span class="opt-code">${esc(o.code)}</span>
-            <span class="opt-name">${esc(o.name)}</span>
+            <span class="opt-name">${esc(o.sub ? `${o.name} · ${o.sub}` : o.name)}</span>
           </label>`).join("")}
         </div>`).join("") || `<p class="picker-count" style="padding:8px">Nothing indexed yet.</p>`;
 
@@ -180,7 +183,7 @@
           <button type="button" class="tile" data-key="${esc(o.key)}" aria-pressed="false">
             <span class="tile-top"><span class="tile-code">${esc(o.code)}</span><span class="tile-n">${plural(o.n, "doc")}</span></span>
             <span class="tile-name">${esc(o.name)}</span>
-            ${o.outside ? `<span class="tile-term">Outside the classroom</span>` : ""}
+            ${o.outside ? `<span class="tile-term">Outside the classroom</span>` : o.sub ? `<span class="tile-term">${esc(o.sub)}</span>` : ""}
           </button>`).join("")}</div>`).join("")
         || `<p class="notice notice--plain">Nothing is indexed yet. Run <code>python brain/sync.py --remote</code> after converting your materials.</p>`;
       el.libTotal.textContent = `${plural(s.docs, "document")} · ${plural(s.chunks, "passage")} · ${Math.round(s.words / 1000).toLocaleString()}k words`;
@@ -190,6 +193,35 @@
       el.library.hidden = false;
       el.tiles.innerHTML = `<p class="notice">Couldn’t load the library: ${esc(err.message || err)}</p>`;
     }
+  }
+
+  // ------------------------------------------------------------------ public demo
+
+  const DEMO_SUGGESTIONS = [
+    "How do two-part tariffs help a firm capture more value?",
+    "What is the winner's curse, and how do I avoid it when bidding?",
+    "How should I read a company's statement of cash flows?",
+    "Why do cartels break down, and when can collusion last?",
+  ];
+
+  function applyDemo() {
+    document.body.classList.add("is-demo");
+    document.title = "Sloan Brain · Public demo";
+    $("#demo-bar").hidden = false;
+    $("#foot").hidden = false;
+    $(".brand-ver").textContent = "Demo";
+    $(".kicker").lastChild.textContent = "The Sloan core, open edition";
+    $(".lede").textContent = "A working copy of my private study tool, loaded with six MIT Sloan core courses from MIT OpenCourseWare. Ask about a real business situation: answers cite the exact course, lecture and page.";
+    $(".suggest-list").innerHTML = DEMO_SUGGESTIONS.map(q => `<button type="button" class="pill">${esc(q)}</button>`).join("");
+  }
+
+  function creditFor(course) {
+    const c = state.stats?.credits?.[course];
+    if (!c) return "";
+    const who = (c.instructors || []).join(", ");
+    return `<p class="credit"><strong>MIT OpenCourseWare</strong> · ${esc(c.course)} ${esc(c.title)}, ${esc(c.term)}${who ? ` · ${esc(who)}` : ""}.
+      <a href="${esc(c.url)}" target="_blank" rel="noopener">Course page</a> ·
+      <a href="${esc(c.license)}" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a></p>`;
   }
 
   // ------------------------------------------------------------------ course filter
@@ -348,6 +380,14 @@
         } else if (event === "empty") {
           setStatus(turn, "No matching passages", true, true);
           notice(turn, `<strong>Nothing in your materials matches.</strong> Try the name of a framework, a course number, or different words, or switch to <em>Search</em> to browse.`, true);
+        } else if (event === "cached") {
+          turn.cached = true;
+        } else if (event === "error" && data.code === "demo_limit") {
+          errored = true;
+          setStatus(turn, "Live answers used up", true, true);
+          notice(turn, data.scope === "visitor"
+            ? `<strong>You’ve used today’s live answers for this demo.</strong> It runs on a free AI allowance. The suggested questions still answer instantly, and <strong>Search</strong> and <strong>Ask Claude</strong> keep working. The sources for your question are below.`
+            : `<strong>The demo’s live answers for today are used up.</strong> It runs on a free AI allowance that resets at 00:00 UTC. The suggested questions still answer instantly, and <strong>Search</strong> and <strong>Ask Claude</strong> keep working. The sources for your question are below.`);
         } else if (event === "error") {
           errored = true;
           setStatus(turn, data.code === "quota" ? "Free answers used up for today" : "Couldn’t write an answer", true, true);
@@ -390,7 +430,7 @@
       ansEl.classList.remove("streaming");
       if (turn.answer && !errored) {
         const used = new Set([...turn.answer.matchAll(/\[(\d{1,2})\]/g)].map(m => +m[1])).size;
-        setStatus(turn, `Answered from ${plural(turn.sources.length, "source")}${used ? ` · ${used} cited` : ""}`, true);
+        setStatus(turn, `Answered from ${plural(turn.sources.length, "source")}${used ? ` · ${used} cited` : ""}${turn.cached ? " · saved answer" : ""}`, true);
       }
     } catch (err) {
       ansEl.classList.remove("streaming");
@@ -436,7 +476,9 @@
       const where = [TYPE_ONE[s.type] || s.type, s.locator, s.module, s.term].filter(Boolean).join("; ");
       return `[${s.n}] ${head} (${where})\n${(s.text || s.snippet || "").replace(/[]/g, "").trim()}`;
     }).join("\n\n---\n\n");
-    return `I'm an MIT Sloan MBA student. Below are excerpts from my own Sloan course materials, notes and conversations. Use them to answer my question.
+    return `${state.stats?.demo
+      ? "Below are excerpts from MIT Sloan course materials published on MIT OpenCourseWare. Use them to answer my question."
+      : "I'm an MIT Sloan MBA student. Below are excerpts from my own Sloan course materials, notes and conversations. Use them to answer my question."}
 
 - Lead with what I should do or think, then the reasoning.
 - Cite excerpts by number, like [2]. Name the course and framework when the excerpt gives them.
@@ -484,8 +526,9 @@ ${src}`;
         `<span class="chip">${esc(TYPE_ONE[doc.type] || doc.type)}</span>`].filter(Boolean).join("");
       $("#reader-title").textContent = doc.title;
       const sub = [doc.course_name, doc.term, doc.module, doc.date].filter(Boolean).map(esc);
-      if (doc.url && /^https?:/.test(doc.url)) sub.push(`<a href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer">Original on Canvas ↗</a>`);
-      $("#reader-sub").innerHTML = sub.join(" · ");
+      const ocw = doc.source === "MIT OpenCourseWare";
+      if (doc.url && /^https?:/.test(doc.url)) sub.push(`<a href="${esc(doc.url)}" target="_blank" rel="noopener noreferrer">Original on ${ocw ? "OpenCourseWare" : "Canvas"} ↗</a>`);
+      $("#reader-sub").innerHTML = sub.join(" · ") + (ocw ? creditFor(doc.course) : "");
       $("#reader-body").innerHTML = doc.chunks.map(c => `
         <section class="passage${c.seq === seq ? " hit" : ""}" data-seq="${c.seq}">
           ${(c.locator || c.heading) && !/^\s*\[(?:Slide|Page|Sheet) /.test(c.text) ? `<p class="passage-loc">${esc(c.locator || c.heading)}</p>` : ""}

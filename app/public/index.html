@@ -37,6 +37,14 @@
   </div>
 </header>
 
+<div class="demo-bar" id="demo-bar" hidden>
+  <div class="wrap demo-bar-in">
+    <span class="demo-tag">Public demo</span>
+    <p>Six MIT Sloan core courses from <a href="https://ocw.mit.edu" target="_blank" rel="noopener">MIT OpenCourseWare</a>. My own Sloan Brain runs privately on my actual course materials.</p>
+    <a class="demo-link" href="https://fabio.cool/#sloan-brain">How I built it &rarr;</a>
+  </div>
+</div>
+
 <main id="main">
   <section class="hero" id="hero">
     <div class="wrap hero-in">
@@ -103,6 +111,12 @@
       <div class="tiles" id="tiles"></div>
     </div>
   </section>
+
+  <footer class="wrap foot" id="foot" hidden>
+    <p>Course materials &copy; MIT, published on <a href="https://ocw.mit.edu" target="_blank" rel="noopener">MIT OpenCourseWare</a> under
+      <a href="https://creativecommons.org/licenses/by-nc-sa/4.0/" target="_blank" rel="noopener">CC BY-NC-SA 4.0</a>. Converted to text for search and quoted with attribution; not endorsed by MIT.
+      App by <a href="https://fabio.cool">Fabio Macedo</a>.</p>
+  </footer>
 </main>
 
 <aside class="reader" id="reader" aria-hidden="true" aria-labelledby="reader-title" role="dialog">
@@ -115,7 +129,7 @@
       </button>
     </header>
     <h2 class="reader-title" id="reader-title"></h2>
-    <p class="reader-sub" id="reader-sub"></p>
+    <div class="reader-sub" id="reader-sub"></div>
     <div class="reader-body md" id="reader-body"></div>
   </div>
 </aside>

@@ -6,7 +6,7 @@ name: Deploy Sloan Brain
 on:
   push:
     branches: [main]
-    paths: ["corpus/**", "app/**", "brain/**", "tests/**", ".github/workflows/deploy.yml"]
+    paths: ["corpus/**", "demo/**", "app/**", "brain/**", "tests/**", ".github/workflows/deploy.yml"]
   workflow_dispatch:
     inputs:
       rebuild:
@@ -67,3 +67,34 @@ jobs:
         if: steps.secrets.outputs.ready == 'true'
         run: npx wrangler deploy
         working-directory: app
+
+      # Public demo at demo.fabio.cool (MIT OpenCourseWare content in demo/).
+      - name: Sync demo corpus into its D1
+        if: steps.secrets.outputs.ready == 'true'
+        run: SLOAN_BRAIN_ROOT=demo python brain/sync.py --remote --env demo
+      - name: Deploy the demo Worker
+        if: steps.secrets.outputs.ready == 'true'
+        run: npx wrangler deploy --env demo
+        working-directory: app
+      - name: Pre-answer the demo's suggested questions
+        if: steps.secrets.outputs.ready == 'true'
+        # Keep in sync with DEMO_SUGGESTIONS in app/public/app.js. Answers are cached,
+        # so this costs AI time once; later runs are free. Never fails the deploy.
+        run: |
+          sleep 20
+          while IFS= read -r q; do
+            [ -z "$q" ] && continue
+            body=$(python -c 'import json,sys; print(json.dumps({"q": sys.argv[1]}))' "$q")
+            for attempt in 1 2 3; do
+              if curl -sfN --max-time 120 -X POST https://demo.fabio.cool/api/ask \
+                   -H 'content-type: application/json' -d "$body" | grep -q 'event: done'; then
+                echo "ok: $q"; break
+              fi
+              sleep 30
+            done
+          done <<'EOF'
+          How do two-part tariffs help a firm capture more value?
+          What is the winner's curse, and how do I avoid it when bidding?
+          How should I read a company's statement of cash flows?
+          Why do cartels break down, and when can collusion last?
+          EOF

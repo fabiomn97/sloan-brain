@@ -48,3 +48,21 @@ CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
   INSERT INTO chunks_fts(chunks_fts, rowid, title, heading, text)
   VALUES ('delete', old.rowid, old.title, old.heading, old.text);
 END;
+
+-- Small key/value store (the demo keeps OpenCourseWare credits here).
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
+-- Public demo only: answers already written (so repeat questions cost nothing)
+-- and per-day usage counters that keep visitors inside the free AI allowance.
+CREATE TABLE IF NOT EXISTS answer_cache (
+  key     TEXT PRIMARY KEY,
+  sources TEXT NOT NULL,
+  answer  TEXT NOT NULL,
+  created TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS usage (
+  day TEXT NOT NULL,
+  who TEXT NOT NULL,                  -- "*" for the whole demo, else a hashed visitor
+  n   INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, who)
+);

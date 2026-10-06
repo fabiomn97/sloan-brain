@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from common import BUILD_DIR, CODE_ROOT, CORPUS_DIR, ROOT, read_doc, sha1  # noqa: E402
 
 APP_DIR = os.path.join(CODE_ROOT, "app")
-DB_NAME = "sloan-brain"
+DB_NAME = "DB"          # the binding name; works for the main app and for --env demo
+ENV_ARGS = []
 TARGET_WORDS = 300       # a passage: long enough for context, short enough to cite
 MAX_WORDS = 450
 SQL_FILE_BYTES = 8_000_000
@@ -280,7 +281,7 @@ def wrangler(args):
     exe = shutil.which("npx") or shutil.which("npx.cmd")
     if not exe:
         sys.exit("npx not found. Install Node.js (nodejs.org), then run `npm install` in app/.")
-    cmd = [exe, "wrangler", "d1", "execute", DB_NAME] + args
+    cmd = [exe, "wrangler", "d1", "execute", DB_NAME] + ENV_ARGS + args
     res = subprocess.run(cmd, cwd=APP_DIR, capture_output=True, text=True, encoding="utf-8")
     if res.returncode != 0:
         sys.exit(f"wrangler failed: {' '.join(args[:3])}\n{res.stdout[-2000:]}\n{res.stderr[-2000:]}")
@@ -324,7 +325,10 @@ def main():
     where.add_argument("--remote", action="store_true")
     where.add_argument("--stats", action="store_true")
     ap.add_argument("--rebuild", action="store_true", help="drop and reload everything")
+    ap.add_argument("--env", help="wrangler environment, e.g. demo (use with SLOAN_BRAIN_ROOT=demo)")
     args = ap.parse_args()
+    if args.env:
+        ENV_ARGS.extend(["--env", args.env])
 
     docs = collect()
     n_chunks = sum(d["n_chunks"] for d in docs)
@@ -349,6 +353,13 @@ def main():
         wrangler([flag, "--yes", "--command",
                   "DROP TABLE IF EXISTS chunks_fts; DROP TABLE IF EXISTS chunks; DROP TABLE IF EXISTS docs;"])
     wrangler([flag, "--yes", "--file", schema])
+
+    credits = os.path.join(ROOT, "credits.json")
+    if os.path.exists(credits):          # attribution shown by the public demo
+        with open(credits, encoding="utf-8") as f:
+            value = json.dumps(json.load(f), ensure_ascii=False)
+        wrangler([flag, "--yes", "--command",
+                  f"INSERT OR REPLACE INTO meta (key, value) VALUES ('credits', {q(value)});"])
 
     existing = {} if args.rebuild else remote_hashes(flag)
     local = {d["id"]: d for d in docs}

@@ -8,7 +8,7 @@ import unicodedata
 
 CODE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # SLOAN_BRAIN_ROOT lets the tests run the pipeline in a scratch folder.
-ROOT = os.environ.get("SLOAN_BRAIN_ROOT") or CODE_ROOT
+ROOT = os.path.abspath(os.environ.get("SLOAN_BRAIN_ROOT") or CODE_ROOT)
 RAW_DIR = os.path.join(ROOT, "raw")            # originals, local only (gitignored)
 CORPUS_DIR = os.path.join(ROOT, "corpus")      # Markdown, committed to the private repo
 INBOX_DIR = os.path.join(ROOT, "inbox")        # anything you add by hand

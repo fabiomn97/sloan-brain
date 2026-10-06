@@ -53,7 +53,7 @@ export default {
 let jwks = { at: 0, keys: [] };
 
 async function authorize(request, env) {
-  if (env.ALLOW_UNAUTHENTICATED === "true") return { ok: true };
+  if (env.ALLOW_UNAUTHENTICATED === "true" || env.DEMO === "true") return { ok: true };   // the demo is public
   if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) {
     return { ok: false, message: "Locked: Cloudflare Access is not configured (see SETUP.md, step 5)." };
   }
@@ -229,8 +229,12 @@ function sourceBlock(h, i) {
 }
 
 function systemPrompt(env, deeper = false) {
-  const owner = env.OWNER_NAME || "Fabio";
-  return `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations. ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.
+  const demo = env.DEMO === "true";
+  const owner = demo ? "the reader" : (env.OWNER_NAME || "Fabio");
+  const intro = demo
+    ? `You are Sloan Brain, running as a public demo: it answers from MIT Sloan core course materials that MIT publishes on OpenCourseWare (economics, data and decisions, communication, organizations, accounting, operations). A visitor asks about a real business situation and wants to know what these courses teach that applies.`
+    : `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations. ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.`;
+  return `${intro}
 
 Rules:
 1. Open with the takeaway ${owner} can act on, in two or three sentences.
@@ -241,10 +245,52 @@ Rules:
    - End with how to apply it to ${owner}'s situation: concrete steps, questions to ask, or pitfalls the materials warn about.
 3. Cite every claim drawn from a source with its number in square brackets, like [2] or [1][4]. Name the course and the framework or author when the source gives them ("In 15.010, ...").
 4. Use only the numbered sources for anything you attribute to Sloan. Never invent sources, numbers, quotes, professors or frameworks.
-5. If the sources don't answer the question, say so in one sentence ("Your Sloan materials don't cover this directly."). You may then add general knowledge under a final heading "**Beyond your materials**", with no citations.
+5. If the sources don't answer the question, say so in one sentence ("${demo ? "These course materials don't" : "Your Sloan materials don't"} cover this directly."). You may then add general knowledge under a final heading "**Beyond your materials**", with no citations.
 6. ${deeper
     ? "This is a deep dive: aim for 1,000-1,600 words. Go section by section, explain each framework fully, work through the examples and numbers in the sources, and cover sources the earlier answer did not use. Don't repeat the earlier answer; build on it."
     : "Aim for 400-700 words."} Use Markdown: short "####" section headings when there are several ideas, bullets for steps, bold for key terms. No preamble.`;
+}
+
+// ---------------------------------------------------------------------------
+// Public demo: answer cache and daily limits. The demo shares the account's
+// free Workers AI allowance with the private brain, so visitors get a few live
+// answers a day and every answer is kept for whoever asks the same thing next.
+// ---------------------------------------------------------------------------
+
+async function sha256(text) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function cacheKeyText(question, keys, deeper) {
+  const q = question.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return `${deeper ? "deep" : "std"}|${[...keys].sort().join(",")}|${q}`;
+}
+
+// Check whether a visitor may get a live answer; charge() records it once the
+// model is actually called (no charge for questions that match nothing).
+async function demoBudget(request, env, cost) {
+  const day = new Date().toISOString().slice(0, 10);
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const who = (await sha256(`${env.DEMO_SALT || "sloan-brain"}|${day}|${ip}`)).slice(0, 24);
+  const daily = Number(env.DEMO_DAILY || 8), perVisitor = Number(env.DEMO_PER_VISITOR || 4);
+  const { results } = await env.DB.prepare("SELECT who, n FROM usage WHERE day = ?1 AND who IN ('*', ?2)")
+    .bind(day, who).all();
+  const used = Object.fromEntries(results.map(r => [r.who, r.n]));
+  if ((used["*"] || 0) + cost > daily) return { ok: false, scope: "demo" };
+  if ((used[who] || 0) + cost > perVisitor) return { ok: false, scope: "visitor" };
+  const bump = "INSERT INTO usage (day, who, n) VALUES (?1, ?2, ?3) ON CONFLICT(day, who) DO UPDATE SET n = n + ?3";
+  return { ok: true, charge: () => env.DB.batch([env.DB.prepare(bump).bind(day, "*", cost), env.DB.prepare(bump).bind(day, who, cost)]) };
+}
+
+function replay(cached) {
+  const enc = new TextEncoder();
+  const body = `event: sources\ndata: ${cached.sources}\n\n` +
+    `event: cached\ndata: {}\n\n` +
+    `data: ${JSON.stringify({ response: cached.answer })}\n\ndata: [DONE]\n\nevent: done\ndata: {}\n\n`;
+  return new Response(enc.encode(body), {
+    headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store" },
+  });
 }
 
 async function ask(request, env, ctx) {
@@ -256,10 +302,19 @@ async function ask(request, env, ctx) {
   const lim = deeper ? LIMITS.deeper : LIMITS.normal;
   if (!question) return json({ error: "Empty question" }, 400);
 
+  const demo = env.DEMO === "true";
+  let cacheKey = null, budget = { ok: true };
+  if (demo) {
+    cacheKey = await sha256(cacheKeyText(question, keys, deeper));
+    const cached = await env.DB.prepare("SELECT sources, answer FROM answer_cache WHERE key = ?1").bind(cacheKey).first();
+    if (cached) return replay(cached);
+    budget = await demoBudget(request, env, deeper ? 2 : 1);
+  }
+
   // Short follow-ups ("and for services?") borrow the previous question's words.
   const prev = history.length ? String(history[history.length - 1].q || "") : "";
   const base = terms(question).length < 3 && prev ? `${prev} ${question}` : question;
-  const ex = await expand(env, base);
+  const ex = budget.ok ? await expand(env, base) : { keywords: [], phrases: [] };
   const keywords = [...new Set([...terms(base), ...ex.keywords])];
   let hits = await search(env, ftsQuery(keywords, ex.phrases), keys, deeper ? 150 : 80);
   hits = diversify(hits, lim.sources, lim.perDoc, deeper ? 0.1 : 0.18);
@@ -280,6 +335,10 @@ async function ask(request, env, ctx) {
         await send("empty", {});
         return;
       }
+      if (!budget.ok) {
+        await send("error", { code: "demo_limit", scope: budget.scope });
+        return;
+      }
       const messages = [{ role: "system", content: systemPrompt(env, deeper) }];
       for (const turn of history) {
         if (turn.q && turn.a) {
@@ -293,16 +352,35 @@ async function ask(request, env, ctx) {
       messages.push({ role: "user", content:
         `${ask}\n\nSources:\n\n${hits.map(sourceBlock).join("\n\n---\n\n")}` });
 
+      if (budget.charge) await budget.charge();
       if (env.MOCK_AI === "true") return await mockAnswer(writer, enc, hits);
       if (env.MOCK_AI === "quota") throw new Error("4006: you have used up your daily free allocation of 10,000 neurons");
       const stream = await env.AI.run(env.ANSWER_MODEL || ANSWER_MODEL,
         { messages, stream: true, max_tokens: lim.maxTokens, temperature: 0.2 });
-      // Relay the model's SSE bytes untouched; the browser parses them.
+      // Relay the model's SSE bytes untouched; the browser parses them. The demo
+      // also keeps a copy of the text so the next visitor gets it for free.
       const reader = stream.getReader();
+      const dec = demo ? new TextDecoder() : null;
+      let raw = "";
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (dec) raw += dec.decode(value, { stream: true });
         await writer.write(value);
+      }
+      if (demo && cacheKey) {
+        let answer = "";
+        for (const line of raw.split("\n")) {
+          if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+          try {
+            const o = JSON.parse(line.slice(6));
+            answer += o.response ?? o.choices?.[0]?.delta?.content ?? "";
+          } catch {}
+        }
+        if (answer.trim().length > 200) {
+          await env.DB.prepare("INSERT OR REPLACE INTO answer_cache (key, sources, answer, created) VALUES (?1, ?2, ?3, ?4)")
+            .bind(cacheKey, JSON.stringify({ sources, keywords: [] }), answer.trim(), new Date().toISOString()).run();
+        }
       }
     } catch (err) {
       const msg = String(err && err.message || err);
@@ -348,8 +426,13 @@ async function stats(env) {
     env.DB.prepare(`SELECT type, MAX(term) AS term, COUNT(*) AS n FROM docs
                     WHERE course = '' GROUP BY type ORDER BY n DESC`),
   ]);
-  return { ...totals.results[0], courses: courses.results, types: types.results,
-           owner: env.OWNER_NAME || "Fabio" };
+  const out = { ...totals.results[0], courses: courses.results, types: types.results,
+                owner: env.OWNER_NAME || "Fabio", demo: env.DEMO === "true" };
+  if (out.demo) {
+    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = 'credits'").first().catch(() => null);
+    out.credits = row ? JSON.parse(row.value) : {};
+  }
+  return out;
 }
 
 async function docRoute(url, env) {

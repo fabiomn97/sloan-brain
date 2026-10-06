@@ -1,0 +1,72 @@
+{
+  "15.010": {
+    "course": "15.010",
+    "title": "Economic Analysis for Business Decisions",
+    "term": "Fall 2004",
+    "instructors": [
+      "Prof. Ernst Berndt",
+      "Prof. Joseph Doyle",
+      "Prof. Michael Chapman",
+      "Prof. Thomas Stoker"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-010-economic-analysis-for-business-decisions-fall-2004/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "15.060": {
+    "course": "15.060",
+    "title": "Data, Models, and Decisions",
+    "term": "Fall 2014",
+    "instructors": [
+      "Prof. Robert Freund",
+      "Prof. Cynthia Rudin",
+      "Juan Pablo Vielma Centeno"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-060-data-models-and-decisions-fall-2014/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "15.280": {
+    "course": "15.280",
+    "title": "Communication for Managers",
+    "term": "Fall 2016",
+    "instructors": [
+      "Prof. Neal Hartman"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-280-communication-for-managers-fall-2016/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "15.311": {
+    "course": "15.311",
+    "title": "Organizational Processes",
+    "term": "Fall 2003",
+    "instructors": [
+      "Prof. John Van Maanen",
+      "Prof. Paul Carlile",
+      "Prof. Roberto Fernandez"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-311-organizational-processes-fall-2003/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "15.515": {
+    "course": "15.515",
+    "title": "Financial Accounting",
+    "term": "Fall 2003",
+    "instructors": [
+      "Prof. George Plesko",
+      "Prof. Kin Lo",
+      "Prof. Richard Frankel"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-515-financial-accounting-fall-2003/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  },
+  "15.761": {
+    "course": "15.761",
+    "title": "Introduction to Operations Management",
+    "term": "Spring 2013",
+    "instructors": [
+      "Prof. Charles H. Fine",
+      "Prof. Tauhid Zaman"
+    ],
+    "url": "https://ocw.mit.edu/courses/15-761-introduction-to-operations-management-spring-2013/",
+    "license": "https://creativecommons.org/licenses/by-nc-sa/4.0/"
+  }
+}
