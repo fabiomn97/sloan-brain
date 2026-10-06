@@ -24,8 +24,8 @@ database_id = "639adb6b-470b-4078-9e15-b4cd9f70a6ba"
 [vars]
 OWNER_NAME = "Fabio"
 # From Zero Trust > Access > Applications > brain.fabio.cool (SETUP.md, step 5).
-ACCESS_TEAM_DOMAIN = ""    # e.g. "fabio.cloudflareaccess.com"
-ACCESS_AUD = ""            # the application's "Application Audience (AUD) Tag"
+ACCESS_TEAM_DOMAIN = "fabiomn97.cloudflareaccess.com"
+ACCESS_AUD = "7c631b7104df3e326df89bbe234a9eb0e6f66d2e1eadecef9379a76335482261"
 # Models (Workers AI). Change here if Cloudflare retires one.
 ANSWER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 EXPAND_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast"
