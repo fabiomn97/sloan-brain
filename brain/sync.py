@@ -143,6 +143,69 @@ def chunk(body, slides=False):
     return [c for c in chunks if c["text"].strip()]
 
 
+SEASON_ORDER = {"IAP": 1, "Spring": 2, "Summer": 3, "Fall": 4}
+
+
+def parse_term(term):
+    """Canvas term name -> "Fall 2026"-style label, or "" if it names no semester.
+
+    "Fall Term (AY 2026-2027)" -> "Fall 2026"; "Spring Term (AY 2026-2027)" -> "Spring 2027".
+    """
+    term = term or ""
+    m = re.search(r"(Fall|Spring|Summer|IAP|January)\b.*?AY\s*(\d{4})\s*[-–/]\s*(\d{2,4})", term, re.I)
+    if m:
+        season = "IAP" if m.group(1).lower() in ("iap", "january") else m.group(1).title()
+        first = int(m.group(2))
+        return f"{season} {first if season == 'Fall' else first + 1}"
+    m = re.search(r"(Fall|Spring|Summer|IAP)\s+(\d{4})", term, re.I)
+    if m:
+        season = "IAP" if m.group(1).lower() == "iap" else m.group(1).title()
+        return f"{season} {m.group(2)}"
+    return ""
+
+
+def term_key(label):
+    season, _, year = label.partition(" ")
+    return (int(year) if year.isdigit() else 0, SEASON_ORDER.get(season, 0))
+
+
+def term_from_date(date):
+    """MIT calendar: Jan is IAP, Feb-May Spring, Jun-Jul Summer, Aug-Dec Fall."""
+    m = re.match(r"(\d{4})-(\d{2})", date or "")
+    if not m:
+        return ""
+    year, month = int(m.group(1)), int(m.group(2))
+    season = "IAP" if month == 1 else "Spring" if month <= 5 else "Summer" if month <= 7 else "Fall"
+    return f"{season} {year}"
+
+
+def assign_semesters(docs):
+    """Give every document a clean semester label, decided per course.
+
+    Canvas names most terms ("Fall Term (AY 2026-2027)"); orientation sites and
+    workshops say "Default term", so those fall back to their documents' dates.
+    """
+    groups = {}
+    for d in docs:
+        groups.setdefault(d["course"] or ("@" + d["path"]), []).append(d)
+    named_terms = sorted({parse_term(d["term"]) for d in docs if parse_term(d["term"])}, key=term_key)
+    for members in groups.values():
+        named = [parse_term(d["term"]) for d in members if parse_term(d["term"])]
+        if named:
+            label = max(set(named), key=named.count)
+        else:
+            # Pre-term material (summer pre-work, orientation) belongs to the next real
+            # semester; undated material to the first one.
+            dates = sorted(d["date"] for d in members if d["date"])
+            guess = term_from_date(dates[len(dates) // 2]) if dates else ""
+            later = [t for t in named_terms if not guess or term_key(t) >= term_key(guess)]
+            label = later[0] if later else guess
+        for d in members:
+            d["course_name"] = re.sub(r":\s*[A-Z]{1,2}\d?$", "", d["course_name"] or "").strip()  # drop ": E2" sections
+            d["term"] = label
+            d["hash"] = sha1(d["hash"], label, d["course_name"])[:20]   # relabeling re-uploads the doc
+
+
 def collect():
     """Read corpus/. Canvas often posts one file in two places; identical copies
     are indexed once, so an answer never cites the same passage twice."""
@@ -180,6 +243,7 @@ def collect():
         }
         doc["chunks"] = [dict(p, title=label, seq=i) for i, p in enumerate(parts)]
         docs.append(doc)
+    assign_semesters(docs)
     return docs
 
 

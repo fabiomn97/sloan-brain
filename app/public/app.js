@@ -3,21 +3,24 @@
   "use strict";
 
   const $ = (sel, el = document) => el.querySelector(sel);
-  const TYPE_LABEL = {
-    slides: "Slides", reading: "Readings", case: "Cases", syllabus: "Syllabi", assignment: "Assignments",
-    page: "Canvas pages", announcement: "Announcements", discussion: "Discussions", transcript: "Conversations",
-    newsletter: "Newsletters", note: "Notes", document: "Documents", spreadsheet: "Spreadsheets",
-  };
   const TYPE_ONE = {
     slides: "slides", reading: "reading", case: "case", syllabus: "syllabus", assignment: "assignment",
     page: "page", announcement: "announcement", discussion: "discussion", transcript: "conversation",
     newsletter: "newsletter", note: "note", document: "document", spreadsheet: "spreadsheet",
   };
-  const OUTSIDE = ["transcript", "newsletter", "note"];   // sources with no course
+  const OUTSIDE = {   // material that belongs to no course, filterable as "@type"
+    transcript: ["Conversations", "Coffee chats and meetings"],
+    newsletter: ["Newsletters", "Sloan newsletters"],
+    note: ["Notes", "Your own notes"],
+  };
+  const SEASONS = { IAP: 1, Spring: 2, Summer: 3, Fall: 4 };
 
-  const state = { mode: "ask", turns: [], stats: null, busy: false, docs: new Map() };
+  const state = { mode: "ask", turns: [], stats: null, busy: false, docs: new Map(),
+                  selected: new Set(), options: [] };
   const el = {
-    q: $("#q"), form: $("#composer"), send: $("#send"), course: $("#course"), type: $("#type"),
+    q: $("#q"), form: $("#composer"), send: $("#send"),
+    pickerBtn: $("#picker-btn"), pickerPop: $("#picker-pop"), pickerBody: $("#picker-body"),
+    pickerLabel: $("#picker-label"), pickerCount: $("#picker-count"),
     thread: $("#thread"), tiles: $("#tiles"), library: $("#library"), libTotal: $("#lib-total"),
     navStat: $("#nav-stat"), newBtn: $("#new-btn"), reader: $("#reader"), toast: $("#toast"),
   };
@@ -123,6 +126,33 @@
 
   // ------------------------------------------------------------------ library
 
+  // Semester labels look like "Fall 2026"; newest first, unlabeled last.
+  function semKey(label) {
+    const [season, year] = String(label || "").split(" ");
+    return (Number(year) || 0) * 10 + (SEASONS[season] || 0);
+  }
+
+  // Every filterable thing, grouped by semester: courses, plus non-course material.
+  function buildOptions(s) {
+    // Course numbers ("15.010") are the label; non-credit sites (workshops, orientation) have none.
+    const isCode = c => /^\d{1,2}\.[0-9A-Z]{2,5}$/i.test(c);
+    const opts = s.courses.map(c => ({ key: c.course, code: isCode(c.course) ? c.course : "Non-credit",
+      name: c.course_name || c.course, term: c.term || "", n: c.n, short: isCode(c.course) ? c.course : (c.course_name || c.course) }));
+    for (const t of s.types) {
+      if (OUTSIDE[t.type]) opts.push({ key: "@" + t.type, code: OUTSIDE[t.type][0], name: OUTSIDE[t.type][1], term: t.term || "", n: t.n, outside: true, short: OUTSIDE[t.type][0] });
+    }
+    const groups = new Map();
+    for (const o of opts) {
+      const g = o.term || "Other";
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(o);
+    }
+    const rank = o => o.outside ? 2 : o.code === "Non-credit" ? 1 : 0;
+    return [...groups.entries()]
+      .sort((a, b) => semKey(b[0]) - semKey(a[0]))
+      .map(([term, items]) => ({ term, items: items.sort((a, b) => (rank(a) - rank(b)) || a.short.localeCompare(b.short, undefined, { numeric: true })) }));
+  }
+
   async function loadStats() {
     try {
       const res = await fetch("/api/stats");
@@ -130,38 +160,76 @@
       const s = state.stats = await res.json();
       el.navStat.textContent = `${plural(s.docs, "doc")} · ${plural(s.courses.length, "course")}`;
       el.navStat.hidden = false;
+      state.options = buildOptions(s);
 
-      for (const c of s.courses) {
-        el.course.add(new Option(c.course_name ? `${c.course} · ${c.course_name}` : c.course, c.course));
-      }
-      for (const t of s.types) el.type.add(new Option(TYPE_LABEL[t.type] || t.type, t.type));
+      el.pickerBody.innerHTML = state.options.map(g => `
+        <div class="sem-group" data-term="${esc(g.term)}">
+          <div class="sem"><span class="sem-name">${esc(g.term)}</span>
+            <button type="button" class="link" data-sem="${esc(g.term)}">Select all</button></div>
+          ${g.items.map(o => `
+          <label class="opt">
+            <input type="checkbox" value="${esc(o.key)}">
+            <span class="opt-code">${esc(o.code)}</span>
+            <span class="opt-name">${esc(o.name)}</span>
+          </label>`).join("")}
+        </div>`).join("") || `<p class="picker-count" style="padding:8px">Nothing indexed yet.</p>`;
 
-      const tiles = s.courses.map(c => `
-        <button type="button" class="tile" data-course="${esc(c.course)}">
-          <span class="tile-top"><span class="tile-code">${esc(c.course)}</span><span class="tile-n">${plural(c.n, "doc")}</span></span>
-          <span class="tile-name">${esc(c.course_name || c.course)}</span>
-          <span class="tile-term">${esc(c.term || "")}</span>
-        </button>`);
-      for (const t of s.types.filter(t => OUTSIDE.includes(t.type))) {
-        tiles.push(`
-        <button type="button" class="tile" data-type="${esc(t.type)}">
-          <span class="tile-top"><span class="tile-code">${esc(TYPE_LABEL[t.type])}</span><span class="tile-n">${plural(t.n, "doc")}</span></span>
-          <span class="tile-name">${{ transcript: "Coffee chats and meetings", newsletter: "Sloan newsletters", note: "Your own notes" }[t.type]}</span>
-          <span class="tile-term">Outside the classroom</span>
-        </button>`);
-      }
-      el.tiles.innerHTML = tiles.join("") || `<p class="notice notice--plain">Nothing is indexed yet. Run <code>python brain/sync.py --remote</code> after converting your materials.</p>`;
+      el.tiles.innerHTML = state.options.map(g => `
+        <p class="lib-sem">${esc(g.term)}</p>
+        <div class="tiles-grid">${g.items.map(o => `
+          <button type="button" class="tile" data-key="${esc(o.key)}" aria-pressed="false">
+            <span class="tile-top"><span class="tile-code">${esc(o.code)}</span><span class="tile-n">${plural(o.n, "doc")}</span></span>
+            <span class="tile-name">${esc(o.name)}</span>
+            ${o.outside ? `<span class="tile-term">Outside the classroom</span>` : ""}
+          </button>`).join("")}</div>`).join("")
+        || `<p class="notice notice--plain">Nothing is indexed yet. Run <code>python brain/sync.py --remote</code> after converting your materials.</p>`;
       el.libTotal.textContent = `${plural(s.docs, "document")} · ${plural(s.chunks, "passage")} · ${Math.round(s.words / 1000).toLocaleString()}k words`;
       el.library.hidden = false;
+      syncFilterUI();
     } catch (err) {
       el.library.hidden = false;
       el.tiles.innerHTML = `<p class="notice">Couldn’t load the library: ${esc(err.message || err)}</p>`;
     }
   }
 
-  function setFilter(select, value) {
-    select.value = value;
-    select.classList.toggle("on", !!value);
+  // ------------------------------------------------------------------ course filter
+
+  const optionByKey = key => state.options.flatMap(g => g.items).find(o => o.key === key);
+
+  function filterLabel(keys) {
+    if (!keys.length) return "All courses";
+    const full = state.options.find(g => g.items.length > 1 && g.items.length === keys.length && g.items.every(o => keys.includes(o.key)));
+    if (full) return `All of ${full.term}`;
+    const codes = keys.map(k => (optionByKey(k) || { short: k }).short);
+    return codes.length <= 2 ? codes.join(", ") : `${codes.length} courses`;
+  }
+
+  function syncFilterUI() {
+    const keys = [...state.selected];
+    el.pickerLabel.textContent = filterLabel(keys);
+    el.pickerBtn.classList.toggle("on", keys.length > 0);
+    el.pickerCount.textContent = keys.length ? `${plural(keys.length, "course")} selected` : "Searching everything";
+    for (const box of el.pickerBody.querySelectorAll("input[type=checkbox]")) box.checked = state.selected.has(box.value);
+    for (const g of el.pickerBody.querySelectorAll(".sem-group")) {
+      const boxes = [...g.querySelectorAll("input")];
+      $(".link", g).textContent = boxes.every(b => b.checked) ? "Clear" : "Select all";
+    }
+    for (const t of el.tiles.querySelectorAll(".tile")) {
+      const on = state.selected.has(t.dataset.key);
+      t.classList.toggle("on", on);
+      t.setAttribute("aria-pressed", String(on));
+    }
+  }
+
+  function setSelected(keys) {
+    state.selected = new Set(keys);
+    syncFilterUI();
+  }
+
+  function openPicker(open) {
+    el.pickerPop.hidden = !open;
+    el.pickerBtn.setAttribute("aria-expanded", String(open));
+    if (open) (el.pickerBody.querySelector("input:checked") || el.pickerBody.querySelector("input"))?.focus({ preventScroll: true });
   }
 
   // ------------------------------------------------------------------ turns
@@ -169,11 +237,10 @@
   function newTurn(q, mode) {
     document.body.classList.add("has-thread");
     el.newBtn.hidden = false;
-    const course = el.course.value, type = el.type.value;
+    const courses = [...state.selected];
     const node = document.createElement("article");
     node.className = "turn";
-    const chips = [course && `<span class="chip chip--accent">${esc(course)}</span>`,
-                   type && `<span class="chip chip--accent">${esc(TYPE_LABEL[type] || type)}</span>`].filter(Boolean).join("");
+    const chips = courses.length ? `<span class="chip chip--accent">${esc(filterLabel(courses))}</span>` : "";
     node.innerHTML = `
       <h2 class="turn-q">${esc(q)}</h2>
       ${chips ? `<div class="turn-filters">${chips}</div>` : ""}
@@ -182,7 +249,7 @@
       <div class="actions" hidden></div>
       <section class="sources" hidden></section>`;
     el.thread.appendChild(node);
-    const turn = { q, mode, course, type, node, sources: [], answer: "", done: false };
+    const turn = { q, mode, courses, node, sources: [], answer: "", done: false };
     state.turns.push(turn);
     requestAnimationFrame(() => node.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
     return turn;
@@ -254,7 +321,7 @@
     try {
       const res = await fetch("/api/ask", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ q, course: turn.course, type: turn.type, history }),
+        body: JSON.stringify({ q, courses: turn.courses, history }),
       });
       if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
       const reader = res.body.getReader();
@@ -331,7 +398,8 @@
   async function search(q) {
     const turn = newTurn(q, "search");
     try {
-      const p = new URLSearchParams({ q, course: turn.course, type: turn.type });
+      const p = new URLSearchParams({ q });
+      for (const c of turn.courses) p.append("course", c);
       const res = await fetch(`/api/search?${p}`);
       if (!res.ok) throw new Error(await res.text());
       const data = await res.json();
@@ -477,7 +545,26 @@ ${src}`;
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
   el.q.addEventListener("input", autosize);
-  for (const s of [el.course, el.type]) s.addEventListener("change", () => s.classList.toggle("on", !!s.value));
+  el.pickerBtn.addEventListener("click", () => openPicker(el.pickerPop.hidden));
+  $("#picker-done").addEventListener("click", () => { openPicker(false); el.q.focus(); });
+  $("#picker-all").addEventListener("click", () => setSelected([]));
+  el.pickerBody.addEventListener("change", e => {
+    const box = e.target.closest("input[type=checkbox]");
+    if (!box) return;
+    box.checked ? state.selected.add(box.value) : state.selected.delete(box.value);
+    syncFilterUI();
+  });
+  el.pickerBody.addEventListener("click", e => {
+    const b = e.target.closest("[data-sem]");
+    if (!b) return;
+    const keys = [...b.closest(".sem-group").querySelectorAll("input")].map(i => i.value);
+    const all = keys.every(k => state.selected.has(k));
+    for (const k of keys) all ? state.selected.delete(k) : state.selected.add(k);
+    syncFilterUI();
+  });
+  document.addEventListener("click", e => {
+    if (!el.pickerPop.hidden && !e.target.closest("#picker")) openPicker(false);
+  });
   document.querySelector(".seg").addEventListener("click", e => {
     const b = e.target.closest("button[data-mode]");
     if (b) { setMode(b.dataset.mode); el.q.focus(); }
@@ -489,11 +576,12 @@ ${src}`;
   el.tiles.addEventListener("click", e => {
     const t = e.target.closest(".tile");
     if (!t) return;
-    if (t.dataset.course) { setFilter(el.course, t.dataset.course); setFilter(el.type, ""); }
-    if (t.dataset.type) { setFilter(el.type, t.dataset.type); setFilter(el.course, ""); }
-    el.q.focus();
-    el.form.scrollIntoView({ behavior: "smooth", block: "center" });
-    toast(`Filtered to ${t.dataset.course || TYPE_LABEL[t.dataset.type]}. Ask away.`);
+    const key = t.dataset.key, code = (optionByKey(key) || { short: key }).short;
+    if (state.selected.has(key)) state.selected.delete(key); else state.selected.add(key);
+    syncFilterUI();
+    toast(state.selected.has(key)
+      ? `Searching in ${filterLabel([...state.selected])}.`
+      : state.selected.size ? `Removed ${code}.` : "Searching all courses again.");
   });
   el.newBtn.addEventListener("click", reset);
   $("#home-link").addEventListener("click", e => { e.preventDefault(); reset(); });
@@ -529,7 +617,7 @@ ${src}`;
     }
     if (act === "answer") {
       setMode("ask");
-      setFilter(el.course, turn.course); setFilter(el.type, turn.type);
+      setSelected(turn.courses);
       el.q.value = turn.q;
       submit();
     }
@@ -544,6 +632,7 @@ ${src}`;
   el.reader.addEventListener("click", e => { if (e.target.closest("[data-close]")) closeReader(); });
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && el.reader.classList.contains("open")) { closeReader(); return; }
+    if (e.key === "Escape" && !el.pickerPop.hidden) { openPicker(false); el.pickerBtn.focus(); return; }
     if (e.key === "/" && document.activeElement !== el.q && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) {
       e.preventDefault(); el.q.focus();
     }

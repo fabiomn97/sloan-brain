@@ -54,15 +54,23 @@
         <label class="sr" for="q">Your question</label>
         <textarea id="q" name="q" rows="2" maxlength="1000" placeholder="e.g. How should I price a product when competitors are cutting prices?"></textarea>
         <div class="composer-bar">
-          <div class="filters">
-            <label class="select">
-              <span class="sr">Course</span>
-              <select id="course"><option value="">All courses</option></select>
-            </label>
-            <label class="select">
-              <span class="sr">Type</span>
-              <select id="type"><option value="">All types</option></select>
-            </label>
+          <div class="picker" id="picker">
+            <button type="button" class="picker-btn" id="picker-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="picker-pop">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M8 7h7"/></svg>
+              <span class="picker-label" id="picker-label">All courses</span>
+              <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+            </button>
+            <div class="picker-pop" id="picker-pop" role="dialog" aria-label="Search in these courses" hidden>
+              <div class="picker-head">
+                <p class="label">Search in</p>
+                <button type="button" class="link" id="picker-all">All courses</button>
+              </div>
+              <div class="picker-body" id="picker-body"></div>
+              <div class="picker-foot">
+                <span class="picker-count" id="picker-count">Everything</span>
+                <button type="button" class="btn btn--primary btn--sm" id="picker-done">Done</button>
+              </div>
+            </div>
           </div>
           <div class="seg" role="radiogroup" aria-label="Mode">
             <button type="button" role="radio" aria-checked="true" data-mode="ask">Answer</button>

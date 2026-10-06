@@ -36,7 +36,7 @@ Everything runs on Cloudflare's free plan.
 
 | Piece | Free allowance | What that means |
 |---|---|---|
-| Answers (Workers AI) | 10,000 neurons/day | About **30 answered questions a day**. Search and *Ask Claude* keep working after that, and it resets at 00:00 UTC. |
+| Answers (Workers AI) | 10,000 neurons/day | About **20 detailed answers a day** (each up to ~700 words). Search and *Ask Claude* keep working after that, and it resets at 00:00 UTC. |
 | Search database (D1) | 500 MB per database, 5M rows read/day | Enough for the text of a whole MBA. `sync.py --stats` shows the real size. |
 | App (Workers) | 100,000 requests/day | Far more than one person uses. |
 | Login (Access) | 50 users | Only me. |

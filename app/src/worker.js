@@ -10,9 +10,9 @@
 
 const ANSWER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const EXPAND_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
-const MAX_SOURCES = 8;
-const PER_DOC = 2;
-const CONTEXT_WORDS = 3200;
+const MAX_SOURCES = 10;
+const PER_DOC = 3;
+const CONTEXT_WORDS = 4800;   // ~6.5k tokens of sources; Llama 3.3 70B reads 24k
 
 const STOP = new Set(["a an and are as at be but by can could did do does for from had has have how i if in " +
   "into is it its me my of on or our should so than that the their them then there these they this to " +
@@ -112,6 +112,23 @@ function ftsQuery(keywords, phrases = []) {
   return [...new Set(parts)].slice(0, 32).join(" OR ");
 }
 
+// Filter keys: a course code ("15.010"), or "@type" for material outside any
+// course ("@transcript", "@newsletter", "@note").
+function filterSql(keys, first) {
+  const courses = keys.filter(k => !k.startsWith("@"));
+  const types = keys.filter(k => k.startsWith("@")).map(k => k.slice(1));
+  const parts = [];
+  let i = first;
+  if (courses.length) parts.push(`d.course IN (${courses.map(() => "?" + i++).join(", ")})`);
+  if (types.length) parts.push(`(d.course = '' AND d.type IN (${types.map(() => "?" + i++).join(", ")}))`);
+  return { sql: parts.length ? `(${parts.join(" OR ")})` : "1 = 1", params: [...courses, ...types] };
+}
+
+function filterKeys(value) {
+  const list = Array.isArray(value) ? value : String(value || "").split(",");
+  return [...new Set(list.map(v => String(v).trim()).filter(Boolean))].slice(0, 40);
+}
+
 const HIT_SQL = `
   SELECT c.rowid AS rid, c.doc_id, c.seq, c.locator, c.heading, c.text,
          d.title, d.course, d.course_name, d.term, d.type, d.module, d.date, d.url,
@@ -120,12 +137,14 @@ const HIT_SQL = `
   FROM chunks_fts
   JOIN chunks c ON c.rowid = chunks_fts.rowid
   JOIN docs d ON d.id = c.doc_id
-  WHERE chunks_fts MATCH ?1 AND (?2 = '' OR d.course = ?2) AND (?3 = '' OR d.type = ?3)
-  ORDER BY score LIMIT ?4`;
+  WHERE chunks_fts MATCH ?1 AND __FILTER__
+  ORDER BY score LIMIT ?2`;
 
-async function search(env, match, course = "", type = "", limit = 40) {
+async function search(env, match, keys = [], limit = 40) {
   if (!match) return [];
-  const { results } = await env.DB.prepare(HIT_SQL).bind(match, course, type, limit).all();
+  const f = filterSql(keys, 3);
+  const { results } = await env.DB.prepare(HIT_SQL.replace("__FILTER__", f.sql))
+    .bind(match, limit, ...f.params).all();
   return results;
 }
 
@@ -165,9 +184,8 @@ function cleanSnippet(s) {
 
 async function searchRoute(url, env) {
   const q = (url.searchParams.get("q") || "").slice(0, 500);
-  const course = url.searchParams.get("course") || "";
-  const type = url.searchParams.get("type") || "";
-  const hits = await search(env, ftsQuery(terms(q)), course, type, 60);
+  const keys = filterKeys(url.searchParams.getAll("course"));
+  const hits = await search(env, ftsQuery(terms(q)), keys, 60);
   return { query: q, results: diversify(hits, 25, 3).map(publicHit) };
 }
 
@@ -212,17 +230,22 @@ function systemPrompt(env) {
   return `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations. ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.
 
 Rules:
-1. Open with the takeaway ${owner} can act on, in one or two sentences.
-2. Then the supporting ideas as short bullets or paragraphs. Cite every claim drawn from a source with its number in square brackets, like [2] or [1][4]. Name the course and the framework or author when the source gives them ("In 15.010, ...").
-3. Use only the numbered sources for anything you attribute to Sloan. Never invent sources, numbers, quotes, professors or frameworks.
-4. If the sources don't answer the question, say so in one sentence ("Your Sloan materials don't cover this directly."). You may then add general knowledge under a final heading "**Beyond your materials**", with no citations.
-5. Under 250 words unless asked for more. Markdown: short paragraphs, bullets, bold sparingly. No preamble, no closing summary.`;
+1. Open with the takeaway ${owner} can act on, in two or three sentences.
+2. Then teach it properly, the way a strong classmate would explain it before an exam:
+   - Walk through each relevant framework or concept: what it says, why it holds, and its steps or components.
+   - Bring in the specifics the sources give: formulas, numbers, definitions, examples, case facts, and what the professor emphasized.
+   - Connect ideas across courses when more than one source applies, and note where they agree or pull in different directions.
+   - End with how to apply it to ${owner}'s situation: concrete steps, questions to ask, or pitfalls the materials warn about.
+3. Cite every claim drawn from a source with its number in square brackets, like [2] or [1][4]. Name the course and the framework or author when the source gives them ("In 15.010, ...").
+4. Use only the numbered sources for anything you attribute to Sloan. Never invent sources, numbers, quotes, professors or frameworks.
+5. If the sources don't answer the question, say so in one sentence ("Your Sloan materials don't cover this directly."). You may then add general knowledge under a final heading "**Beyond your materials**", with no citations.
+6. Aim for 400-700 words. Use Markdown: short "####" section headings when there are several ideas, bullets for steps, bold for key terms. No preamble.`;
 }
 
 async function ask(request, env, ctx) {
   const body = await request.json().catch(() => ({}));
   const question = String(body.q || "").trim().slice(0, 1000);
-  const course = String(body.course || ""), type = String(body.type || "");
+  const keys = filterKeys(body.courses);
   const history = Array.isArray(body.history) ? body.history.slice(-2) : [];
   if (!question) return json({ error: "Empty question" }, 400);
 
@@ -231,7 +254,7 @@ async function ask(request, env, ctx) {
   const base = terms(question).length < 3 && prev ? `${prev} ${question}` : question;
   const ex = await expand(env, base);
   const keywords = [...new Set([...terms(base), ...ex.keywords])];
-  let hits = await search(env, ftsQuery(keywords, ex.phrases), course, type, 60);
+  let hits = await search(env, ftsQuery(keywords, ex.phrases), keys, 80);
   hits = diversify(hits, MAX_SOURCES, PER_DOC);
 
   let words = 0;
@@ -254,7 +277,7 @@ async function ask(request, env, ctx) {
       for (const turn of history) {
         if (turn.q && turn.a) {
           messages.push({ role: "user", content: String(turn.q).slice(0, 1000) });
-          messages.push({ role: "assistant", content: String(turn.a).slice(0, 2000) });
+          messages.push({ role: "assistant", content: String(turn.a).slice(0, 3000) });
         }
       }
       messages.push({ role: "user", content:
@@ -263,7 +286,7 @@ async function ask(request, env, ctx) {
       if (env.MOCK_AI === "true") return await mockAnswer(writer, enc, hits);
       if (env.MOCK_AI === "quota") throw new Error("4006: you have used up your daily free allocation of 10,000 neurons");
       const stream = await env.AI.run(env.ANSWER_MODEL || ANSWER_MODEL,
-        { messages, stream: true, max_tokens: 900, temperature: 0.2 });
+        { messages, stream: true, max_tokens: 1800, temperature: 0.2 });
       // Relay the model's SSE bytes untouched; the browser parses them.
       const reader = stream.getReader();
       for (;;) {
@@ -311,8 +334,9 @@ async function stats(env) {
   const [totals, courses, types] = await env.DB.batch([
     env.DB.prepare("SELECT COUNT(*) AS docs, COALESCE(SUM(n_chunks),0) AS chunks, COALESCE(SUM(words),0) AS words FROM docs"),
     env.DB.prepare(`SELECT course, MAX(course_name) AS course_name, MAX(term) AS term, COUNT(*) AS n
-                    FROM docs WHERE course <> '' GROUP BY course ORDER BY MAX(term) DESC, course`),
-    env.DB.prepare("SELECT type, COUNT(*) AS n FROM docs GROUP BY type ORDER BY n DESC"),
+                    FROM docs WHERE course <> '' GROUP BY course ORDER BY course`),
+    env.DB.prepare(`SELECT type, MAX(term) AS term, COUNT(*) AS n FROM docs
+                    WHERE course = '' GROUP BY type ORDER BY n DESC`),
   ]);
   return { ...totals.results[0], courses: courses.results, types: types.results,
            owner: env.OWNER_NAME || "Fabio" };
