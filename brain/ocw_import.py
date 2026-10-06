@@ -200,9 +200,13 @@ def main():
     ap.add_argument("zips", nargs="+")
     ap.add_argument("--out", default="demo")
     args = ap.parse_args()
-    credits = [import_zip(z, args.out) for z in args.zips]
-    with open(os.path.join(args.out, "credits.json"), "w", encoding="utf-8") as f:
-        json.dump({c["course"]: c for c in credits}, f, indent=2, ensure_ascii=False)
+    path = os.path.join(args.out, "credits.json")
+    credits = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
+    for z in args.zips:
+        c = import_zip(z, args.out)
+        credits[c["course"]] = c
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(credits, f, indent=2, ensure_ascii=False)
     print(f"Wrote {os.path.join(args.out, 'credits.json')}")
 
 

@@ -136,8 +136,15 @@
   function buildOptions(s) {
     // Course numbers ("15.010") are the label; non-credit sites (workshops, orientation) have none.
     const isCode = c => /^\d{1,2}\.[0-9A-Z]{2,5}$/i.test(c);
-    const opts = s.courses.map(c => ({ key: c.course, code: isCode(c.course) ? c.course : "Non-credit",
-      name: c.course_name || c.course, term: c.term || "", n: c.n, short: isCode(c.course) ? c.course : (c.course_name || c.course) }));
+    // OpenCourseWare editions in the private brain are keyed "OCW 15.010".
+    const opts = s.courses.map(c => {
+      const ocw = c.course.startsWith("OCW "), num = ocw ? c.course.slice(4) : c.course;
+      let name = c.course_name || num, sub;
+      const cut = ocw ? name.lastIndexOf(" · ") : -1;          // "Financial Accounting · Fall 2003"
+      if (cut > 0) { sub = name.slice(cut + 3); name = name.slice(0, cut); }
+      return { key: c.course, code: isCode(num) ? num : "Non-credit", name, sub,
+        term: c.term || "", n: c.n, short: ocw ? `${num} (OCW)` : isCode(num) ? num : name };
+    });
     for (const t of s.types) {
       if (OUTSIDE[t.type]) opts.push({ key: "@" + t.type, code: OUTSIDE[t.type][0], name: OUTSIDE[t.type][1], term: t.term || "", n: t.n, outside: true, short: OUTSIDE[t.type][0] });
     }
@@ -216,7 +223,7 @@
   }
 
   function creditFor(course) {
-    const c = state.stats?.credits?.[course];
+    const c = state.stats?.credits?.[String(course).replace(/^OCW /, "")];
     if (!c) return "";
     const who = (c.instructors || []).join(", ");
     return `<p class="credit"><strong>MIT OpenCourseWare</strong> · ${esc(c.course)} ${esc(c.title)}, ${esc(c.term)}${who ? ` · ${esc(who)}` : ""}.

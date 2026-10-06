@@ -233,7 +233,7 @@ function systemPrompt(env, deeper = false) {
   const owner = demo ? "the reader" : (env.OWNER_NAME || "Fabio");
   const intro = demo
     ? `You are Sloan Brain, running as a public demo: it answers from MIT Sloan core course materials that MIT publishes on OpenCourseWare (economics, data and decisions, communication, organizations, accounting, operations). A visitor asks about a real business situation and wants to know what these courses teach that applies.`
-    : `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations. ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.`;
+    : `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations, plus MIT OpenCourseWare editions of the same courses (marked "MIT OpenCourseWare"; say so when you cite one). ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.`;
   return `${intro}
 
 Rules:
@@ -428,10 +428,8 @@ async function stats(env) {
   ]);
   const out = { ...totals.results[0], courses: courses.results, types: types.results,
                 owner: env.OWNER_NAME || "Fabio", demo: env.DEMO === "true" };
-  if (out.demo) {
-    const row = await env.DB.prepare("SELECT value FROM meta WHERE key = 'credits'").first().catch(() => null);
-    out.credits = row ? JSON.parse(row.value) : {};
-  }
+  const row = await env.DB.prepare("SELECT value FROM meta WHERE key = 'credits'").first().catch(() => null);
+  out.credits = row ? JSON.parse(row.value) : {};
   return out;
 }
 

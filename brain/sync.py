@@ -207,12 +207,12 @@ def assign_semesters(docs):
             d["hash"] = sha1(d["hash"], label, d["course_name"])[:20]   # relabeling re-uploads the doc
 
 
-def collect():
-    """Read corpus/. Canvas often posts one file in two places; identical copies
-    are indexed once, so an answer never cites the same passage twice."""
+def collect(corpus_dir=CORPUS_DIR, rel_root=ROOT):
+    """Read a corpus folder. Canvas often posts one file in two places; identical
+    copies are indexed once, so an answer never cites the same passage twice."""
     docs, seen_bodies = [], set()
     paths = []
-    for dirpath, _, files in os.walk(CORPUS_DIR):
+    for dirpath, _, files in os.walk(corpus_dir):
         for name in files:
             if name.endswith(".md") and name.lower() != "readme.md":
                 paths.append(os.path.join(dirpath, name))
@@ -220,7 +220,7 @@ def collect():
     paths.sort(key=lambda p: (bool(re.search(r"-[0-9a-f]{6}\.md$", p)), p))
     for path in paths:
         name = os.path.basename(path)
-        rel = os.path.relpath(path, ROOT).replace(os.sep, "/")
+        rel = os.path.relpath(path, rel_root).replace(os.sep, "/")
         with open(path, "rb") as f:
             digest = sha1(f.read().decode("utf-8", "replace"))
         meta, body = read_doc(path)
@@ -326,11 +326,27 @@ def main():
     where.add_argument("--stats", action="store_true")
     ap.add_argument("--rebuild", action="store_true", help="drop and reload everything")
     ap.add_argument("--env", help="wrangler environment, e.g. demo (use with SLOAN_BRAIN_ROOT=demo)")
+    ap.add_argument("--also", action="append", default=[],
+                    help="extra corpus folder to index as its own shelf, e.g. demo/corpus")
+    ap.add_argument("--shelf", default="MIT OpenCourseWare", help="shelf name for --also folders")
+    ap.add_argument("--shelf-prefix", default="OCW ", help="prefix that keeps --also course codes apart")
     args = ap.parse_args()
     if args.env:
         ENV_ARGS.extend(["--env", args.env])
 
     docs = collect()
+    credit_files = [os.path.join(ROOT, "credits.json")]
+    for extra in args.also:
+        # Another corpus shown as its own shelf (the private brain's OpenCourseWare courses).
+        # Labeled after the semester pass so it can't shift your own courses' semesters.
+        extra = os.path.abspath(extra)
+        for d in collect(extra, CODE_ROOT):
+            d["course_name"] = " · ".join(x for x in (d["course_name"], d["term"]) if x)
+            d["course"] = f"{args.shelf_prefix}{d['course']}" if d["course"] else ""
+            d["term"] = args.shelf
+            d["hash"] = sha1(d["hash"], args.shelf, d["course"])[:20]
+            docs.append(d)
+        credit_files.append(os.path.join(os.path.dirname(extra), "credits.json"))
     n_chunks = sum(d["n_chunks"] for d in docs)
     words = sum(d["words"] for d in docs)
     print(f"{len(docs)} documents, {n_chunks} passages, {words:,} words")
@@ -354,12 +370,14 @@ def main():
                   "DROP TABLE IF EXISTS chunks_fts; DROP TABLE IF EXISTS chunks; DROP TABLE IF EXISTS docs;"])
     wrangler([flag, "--yes", "--file", schema])
 
-    credits = os.path.join(ROOT, "credits.json")
-    if os.path.exists(credits):          # attribution shown by the public demo
-        with open(credits, encoding="utf-8") as f:
-            value = json.dumps(json.load(f), ensure_ascii=False)
+    credits = {}
+    for path in credit_files:            # OpenCourseWare attribution shown in the reader
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                credits.update(json.load(f))
+    if credits:
         wrangler([flag, "--yes", "--command",
-                  f"INSERT OR REPLACE INTO meta (key, value) VALUES ('credits', {q(value)});"])
+                  f"INSERT OR REPLACE INTO meta (key, value) VALUES ('credits', {q(json.dumps(credits, ensure_ascii=False))});"])
 
     existing = {} if args.rebuild else remote_hashes(flag)
     local = {d["id"]: d for d in docs}

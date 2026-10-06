@@ -67,7 +67,8 @@ tests/                    end-to-end test with a fake Canvas
 | `python brain/canvas_harvest.py` | Download everything new or changed |
 | `python brain/convert.py` | Turn `raw/` and `inbox/` into `corpus/` |
 | `python brain/sync.py --stats` | Count what would be indexed |
-| `python brain/sync.py --remote` | Push changes to the live app (CI does this on push) |
+| `python brain/sync.py --remote --also demo/corpus` | Push changes to the live app, with the OpenCourseWare shelf (CI does this on push) |
+| `python brain/ocw_sync.py` | Import OpenCourseWare editions of any new courses into `demo/` (CI does this on push) |
 | `cd app && npm run dev` | Run the app locally at http://localhost:8787 |
 | `python tests/test_pipeline.py` | Run the end-to-end test |
 
@@ -78,5 +79,7 @@ Setup, from zero to a working site: **[SETUP.md](SETUP.md)**.
 1. `python brain/canvas_harvest.py` after finals, before Canvas closes old courses.
 2. Download what's in `raw/failed.csv` by hand into `inbox/canvas/<course>/`.
 3. Drop the semester's chats and newsletters into `inbox/`.
-4. `python brain/convert.py`, then commit and push `corpus/`. The site updates itself.
+4. `python brain/convert.py`, then commit and push `corpus/`. The site updates itself, and any
+   new course with an MIT OpenCourseWare edition is added to both the private brain (as the
+   "MIT OpenCourseWare" shelf) and the public demo.
 5. Back up `raw/` and `inbox/` to a personal drive. They hold the original files.
