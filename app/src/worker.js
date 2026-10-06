@@ -10,9 +10,12 @@
 
 const ANSWER_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 const EXPAND_MODEL = "@cf/meta/llama-3.1-8b-instruct-fast";
-const MAX_SOURCES = 10;
-const PER_DOC = 3;
-const CONTEXT_WORDS = 4800;   // ~6.5k tokens of sources; Llama 3.3 70B reads 24k
+// Normal answers, and "Go deeper" second passes that read twice the material
+// and may write about twice as much. Llama 3.3 70B handles 24k tokens in total.
+const LIMITS = {
+  normal: { sources: 10, perDoc: 3, contextWords: 4800, maxTokens: 1800 },
+  deeper: { sources: 18, perDoc: 4, contextWords: 9500, maxTokens: 3200 },
+};
 
 const STOP = new Set(["a an and are as at be but by can could did do does for from had has have how i if in " +
   "into is it its me my of on or our should so than that the their them then there these they this to " +
@@ -225,7 +228,7 @@ function sourceBlock(h, i) {
   return `[${i + 1}] ${label ? label + " — " : ""}${h.title} (${h.type}${where ? "; " + where : ""})\n${h.text}`;
 }
 
-function systemPrompt(env) {
+function systemPrompt(env, deeper = false) {
   const owner = env.OWNER_NAME || "Fabio";
   return `You are ${owner}'s Sloan Brain: the memory of what ${owner} learned in the MIT Sloan MBA, built from ${owner}'s own course slides, readings, cases, syllabi, notes and conversations. ${owner} asks you when facing a real situation and wants to know what Sloan taught that applies.
 
@@ -239,7 +242,9 @@ Rules:
 3. Cite every claim drawn from a source with its number in square brackets, like [2] or [1][4]. Name the course and the framework or author when the source gives them ("In 15.010, ...").
 4. Use only the numbered sources for anything you attribute to Sloan. Never invent sources, numbers, quotes, professors or frameworks.
 5. If the sources don't answer the question, say so in one sentence ("Your Sloan materials don't cover this directly."). You may then add general knowledge under a final heading "**Beyond your materials**", with no citations.
-6. Aim for 400-700 words. Use Markdown: short "####" section headings when there are several ideas, bullets for steps, bold for key terms. No preamble.`;
+6. ${deeper
+    ? "This is a deep dive: aim for 1,000-1,600 words. Go section by section, explain each framework fully, work through the examples and numbers in the sources, and cover sources the earlier answer did not use. Don't repeat the earlier answer; build on it."
+    : "Aim for 400-700 words."} Use Markdown: short "####" section headings when there are several ideas, bullets for steps, bold for key terms. No preamble.`;
 }
 
 async function ask(request, env, ctx) {
@@ -247,6 +252,8 @@ async function ask(request, env, ctx) {
   const question = String(body.q || "").trim().slice(0, 1000);
   const keys = filterKeys(body.courses);
   const history = Array.isArray(body.history) ? body.history.slice(-2) : [];
+  const deeper = body.deeper === true;
+  const lim = deeper ? LIMITS.deeper : LIMITS.normal;
   if (!question) return json({ error: "Empty question" }, 400);
 
   // Short follow-ups ("and for services?") borrow the previous question's words.
@@ -254,11 +261,11 @@ async function ask(request, env, ctx) {
   const base = terms(question).length < 3 && prev ? `${prev} ${question}` : question;
   const ex = await expand(env, base);
   const keywords = [...new Set([...terms(base), ...ex.keywords])];
-  let hits = await search(env, ftsQuery(keywords, ex.phrases), keys, 80);
-  hits = diversify(hits, MAX_SOURCES, PER_DOC);
+  let hits = await search(env, ftsQuery(keywords, ex.phrases), keys, deeper ? 150 : 80);
+  hits = diversify(hits, lim.sources, lim.perDoc, deeper ? 0.1 : 0.18);
 
   let words = 0;
-  hits = hits.filter(h => (words += h.text.split(/\s+/).length) <= CONTEXT_WORDS || h === hits[0]);
+  hits = hits.filter(h => (words += h.text.split(/\s+/).length) <= lim.contextWords || h === hits[0]);
   const sources = hits.map(publicHit);
 
   const { readable, writable } = new TransformStream();
@@ -273,20 +280,23 @@ async function ask(request, env, ctx) {
         await send("empty", {});
         return;
       }
-      const messages = [{ role: "system", content: systemPrompt(env) }];
+      const messages = [{ role: "system", content: systemPrompt(env, deeper) }];
       for (const turn of history) {
         if (turn.q && turn.a) {
           messages.push({ role: "user", content: String(turn.q).slice(0, 1000) });
           messages.push({ role: "assistant", content: String(turn.a).slice(0, 3000) });
         }
       }
+      const ask = deeper
+        ? `Go deeper on this question: ${question}\n\nWrite the full deep dive from these sources (numbered afresh; cite these numbers, not the earlier ones).`
+        : `Question: ${question}`;
       messages.push({ role: "user", content:
-        `Question: ${question}\n\nSources:\n\n${hits.map(sourceBlock).join("\n\n---\n\n")}` });
+        `${ask}\n\nSources:\n\n${hits.map(sourceBlock).join("\n\n---\n\n")}` });
 
       if (env.MOCK_AI === "true") return await mockAnswer(writer, enc, hits);
       if (env.MOCK_AI === "quota") throw new Error("4006: you have used up your daily free allocation of 10,000 neurons");
       const stream = await env.AI.run(env.ANSWER_MODEL || ANSWER_MODEL,
-        { messages, stream: true, max_tokens: 1800, temperature: 0.2 });
+        { messages, stream: true, max_tokens: lim.maxTokens, temperature: 0.2 });
       // Relay the model's SSE bytes untouched; the browser parses them.
       const reader = stream.getReader();
       for (;;) {

@@ -112,6 +112,7 @@ kbd{font:500 11px/1 var(--mono); padding:2px 5px; border:1px solid var(--line); 
   background:var(--surface-2); color:var(--ink-2); border:1px solid var(--line-2);
 }
 .chip--accent{background:var(--accent-soft); color:var(--accent-ink); border-color:transparent}
+.chip--deep{background:var(--btn); color:var(--btn-fg); border-color:transparent}
 .pill{
   display:inline-flex; align-items:center; text-align:left; min-height:38px; padding:8px 14px; border-radius:99px;
   background:var(--surface); border:1px solid var(--line); color:var(--ink-2); font-size:14px; line-height:1.35; cursor:pointer;

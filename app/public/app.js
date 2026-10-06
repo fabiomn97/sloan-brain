@@ -234,22 +234,23 @@
 
   // ------------------------------------------------------------------ turns
 
-  function newTurn(q, mode) {
+  function newTurn(q, mode, parent = null) {
     document.body.classList.add("has-thread");
     el.newBtn.hidden = false;
-    const courses = [...state.selected];
+    const courses = parent ? parent.courses : [...state.selected];
     const node = document.createElement("article");
-    node.className = "turn";
-    const chips = courses.length ? `<span class="chip chip--accent">${esc(filterLabel(courses))}</span>` : "";
+    node.className = "turn" + (parent ? " turn--deeper" : "");
+    const chips = [parent && `<span class="chip chip--deep">Deep dive</span>`,
+                   courses.length && `<span class="chip chip--accent">${esc(filterLabel(courses))}</span>`].filter(Boolean).join("");
     node.innerHTML = `
       <h2 class="turn-q">${esc(q)}</h2>
       ${chips ? `<div class="turn-filters">${chips}</div>` : ""}
-      <p class="status"><span class="spin"></span><span class="status-text">Searching your materials…</span></p>
+      <p class="status"><span class="spin"></span><span class="status-text">${parent ? "Reading more of your materials…" : "Searching your materials…"}</span></p>
       <div class="answer"></div>
       <div class="actions" hidden></div>
       <section class="sources" hidden></section>`;
     el.thread.appendChild(node);
-    const turn = { q, mode, courses, node, sources: [], answer: "", done: false };
+    const turn = { q, mode, courses, node, sources: [], answer: "", done: false, deeper: !!parent };
     state.turns.push(turn);
     requestAnimationFrame(() => node.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
     return turn;
@@ -287,8 +288,14 @@
   function renderActions(turn) {
     const box = $(".actions", turn.node);
     const btns = [];
+    const canDeepen = turn.mode === "ask" && turn.answer && !turn.deeper && !turn.deepened;
+    if (canDeepen) {
+      btns.push(`<button type="button" class="btn btn--primary btn--sm" data-act="deeper">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+        Go deeper</button>`);
+    }
     if (turn.sources.length) {
-      btns.push(`<button type="button" class="btn btn--primary btn--sm" data-act="claude">
+      btns.push(`<button type="button" class="btn ${canDeepen ? "btn--ghost" : "btn--primary"} btn--sm" data-act="claude">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 5.6L19.5 10l-5.6 1.9L12 17.5l-1.9-5.6L4.5 10l5.6-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>
         ${turn.answer ? "Ask Claude for a deeper answer" : "Ask Claude to answer from these"}</button>`);
     }
@@ -310,10 +317,11 @@
 
   // ------------------------------------------------------------------ ask (streamed)
 
-  async function ask(q) {
-    const turn = newTurn(q, "ask");
-    const history = state.turns.filter(t => t !== turn && t.mode === "ask" && t.done && t.answer)
-      .slice(-2).map(t => ({ q: t.q, a: t.answer }));
+  async function ask(q, parent = null) {
+    const turn = newTurn(q, "ask", parent);
+    const history = parent ? [{ q: parent.q, a: parent.answer }]
+      : state.turns.filter(t => t !== turn && t.mode === "ask" && t.done && t.answer)
+        .slice(-2).map(t => ({ q: t.q, a: t.answer }));
     const ansEl = $(".answer", turn.node);
     let raf = 0;
     const paint = () => { raf = 0; ansEl.innerHTML = renderAnswer(turn.answer, turn.sources.length); };
@@ -321,7 +329,7 @@
     try {
       const res = await fetch("/api/ask", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ q, courses: turn.courses, history }),
+        body: JSON.stringify({ q, courses: turn.courses, history, deeper: !!parent }),
       });
       if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
       const reader = res.body.getReader();
@@ -614,6 +622,13 @@ ${src}`;
     if (act === "copy") {
       const refs = turn.sources.map(s => `[${s.n}] ${[s.course, s.title, s.locator].filter(Boolean).join(", ")}`).join("\n");
       copy(`${turn.answer}\n\nSources:\n${refs}`).then(ok => toast(ok ? "Answer copied with its sources." : "Couldn’t copy."));
+    }
+    if (act === "deeper" && !state.busy) {
+      turn.deepened = true;
+      renderActions(turn);
+      state.busy = true;
+      el.send.disabled = true;
+      ask(turn.q, turn).finally(() => { state.busy = false; el.send.disabled = false; });
     }
     if (act === "answer") {
       setMode("ask");
