@@ -1,13 +1,13 @@
-# Sloan Brain
+# Sloan Brain - Test it at demo.fabio.cool
 
 A private memory of everything I learned at MIT Sloan: every slide, reading,
 case, syllabus and assignment from Canvas, plus coffee chats, newsletters and
 notes. When I face a situation years from now, I ask, and it answers from my own
 materials, citing the course and the exact slide or page.
 
-Lives at **brain.fabio.cool**, behind a login that emails a one-time code to my
+Lives at **www.brain.fabio.cool**, behind a login that emails a one-time code to my
 personal address. No MIT account needed, so it keeps working after graduation.
-Costs **$0 a month**.
+Costs **$0 a month**. YOU can test it publicly in **www.demo.fabio.cool**
 
 ## How it works
 
